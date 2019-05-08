@@ -1,0 +1,130 @@
+heat_template_version: 2015-04-30
+
+description: >
+  Heat WordPress template to deploy WordPress (FrontEnd part)
+
+parameters:
+  WordPressKeyName:
+    type: string
+
+  WordPressFrontEndFlavorName:
+    type: string
+
+  WordPressImageID:
+    type: string
+
+  WordPressInstanceName: 
+    type: string
+
+  WordPressDataBaseName:
+
+  WordPressDataBaseName:
+    type: string
+
+  WordPressUserDataBaseName:
+    type: string
+
+  WordPressPublicNetworkName:
+    type: string
+
+  WordPressIPListAccessSSH:
+    type: comma_delimited_list
+
+  WordPressPortSSH:
+    type: comma_delimited_list
+    description: Only SSH port
+    default: "22"
+
+  WordPressUserDataBasePassword:
+    type: string
+
+  WordPressPrivateNetworkName:
+    type: string
+
+  WordPressDataBasePrivateIPAddress:
+    type: string
+
+  InternetIPAddress:
+    type: string
+    description: Web Access to WordPress Application
+    default: 0.0.0.0/0
+
+resources:
+  SecurityGroupWordPressAccessSSH:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: HYB-SSH-WP-FE
+      description: Ports (ingress) of Access SSH 
+      rules:
+        repeat:
+          for_each:
+            <%ip_addr%>: { get_param: WordPressIPListAccessSSH }
+            <%port%>: { get_param: WordPressPortSSH }
+          template:
+            remote_ip_prefix: <%ip_addr%>
+            protocol: tcp
+            direction: ingress
+            port_range_min: <%port%>
+            port_range_max: <%port%>
+
+  SecurityGroupWordPressFrontEnd:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: HYB-APP-WP-FE
+      description: Ports (ingress) of Tools Services by Application VM, ports (egress) open by default
+      rules:
+        - remote_ip_prefix: { get_param: InternetIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+        - remote_ip_prefix: { get_param: InternetIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 443
+          port_range_max: 443
+
+  WordPressFrontEndPublicIPAllocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: { get_param: WordPressPublicNetworkName } 
+
+  WordPressFrontEndPublicIPAssociation:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: WordPressFrontEndPublicIPAllocation  }
+      server_id: { get_resource: WordPressFrontEndInstance }
+
+  WordPressFrontEndInstall:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config:
+        str_replace:
+          params:
+            $WordPressDataBaseName: { get_param: WordPressDataBaseName }
+            $WordPressUserDataBaseName : { get_param: WordPressUserDataBaseName }
+            $WordPressUserDataBasePassword: { get_param: WordPressUserDataBasePassword } 
+            $WordPressDataBasePrivateIPAddress: { get_param: WordPressDataBasePrivateIPAddress }
+          template: { get_file: fragments/InstallFrontWebWordPress.sh }
+
+  InstallWordPressFrontEndInstance:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+        - config: { get_resource: WordPressFrontEndInstall }
+
+  WordPressFrontEndInstance:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: WordPressImageID }
+      flavor: { get_param: WordPressFrontEndFlavorName }
+      key_name: { get_param: WordPressKeyName }
+      name: { list_join: ["-", [ { get_param: WordPressInstanceName }, "fe"]] }
+      security_groups: [{ get_resource: SecurityGroupWordPressFrontEnd }, { get_resource: SecurityGroupWordPressAccessSSH }]
+      networks:
+        - network: { get_param: WordPressPrivateNetworkName }
+      user_data_format: RAW
+      user_data: { get_attr: [InstallWordPressFrontEndInstance, config]}
+
+outputs:

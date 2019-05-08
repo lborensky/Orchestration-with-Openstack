@@ -1,0 +1,166 @@
+#heat_template_version: 2015-04-30
+heat_template_version: 2013-05-23
+
+description: >
+  Heat WordPress template to deploy WordPress on a single instance using Heat's
+  software orchestration feature.
+
+parameters:
+  KeyName:
+    type: string
+    description: SSH key to VM access
+    default: KP-OCB-02
+
+  VMName:
+    type: string
+    description: Name of VM
+    default: vm-wp-01
+
+  Flavor:
+    type: string
+    description: type of VM
+    default: s1.cw.small-1
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    default: lan
+
+  Image:
+    type: string
+    description: Fedora 24 with agents SoftwareConfig
+    default: "19556f03-e92d-4fb9-b86a-c10dd91f8e21"
+
+  MyIPAddress:
+    type: string
+    description: My Host with IP address
+    default: "90.35.233.169/32"
+
+  DBName:
+    type: string
+    description: WordPress database name
+    default: wordpress
+    constraints:
+      - length: { min: 1, max: 64 }
+        description: db_name must be between 1 and 64 characters
+      - allowed_pattern: '[a-zA-Z][a-zA-Z0-9]*'
+        description: >
+          db_name must begin with a letter and contain only alphanumeric characters
+
+  DBUserName:
+    type: string
+    description: The WordPress database admin account username
+    default: admin
+    hidden: true
+    constraints:
+      - length: { min: 1, max: 16 }
+        description: db_username must be between 1 and 64 characters
+      - allowed_pattern: '[a-zA-Z][a-zA-Z0-9]*'
+        description: >
+          db_username must begin with a letter and contain only alphanumeric characters
+
+resources:
+  IPf-Allocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: public
+
+  IPf-Association:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: IPf-Allocation }
+      server_id: { get_resource: WP_VM }
+
+  SecurityGroupWPFrontEnd:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: APP-CMS-FE
+      description: Ports (ingress) of access & web access, ports (egress) open by default
+      rules:
+        - remote_ip_prefix: { get_param: MyIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - remote_ip_prefix: { get_param: MyIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+
+  WPConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      inputs:
+        - name: db_name
+        - name: db_user
+        - name: db_password
+        - name: db_ipaddr
+      group: script
+      config: { get_file: fragments/wp_install.sh }
+
+  DBConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      inputs:
+        - name: db_rootpassword
+        - name: db_name
+        - name: db_user
+        - name: db_password
+      group: script
+      config: { get_file: fragments/db_install.sh }
+
+  DBRootPassword:
+    type: OS::Heat::RandomString
+
+  DBUserPassword:
+    type: OS::Heat::RandomString
+
+  WP_FE_Deployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: WP_BE_Deployment
+    properties:
+      config:
+        get_resource: WPConfig
+      server:
+        get_resource: WP_VM
+      input_values:
+        db_name: { get_param: DBName }
+        db_user: { get_param: DBUserName }
+        db_password: { get_attr: [ DBUserPassword, value ] }
+        db_ipaddr: { get_attr: [ WP_VM, first_address ] }
+
+  WP_BE_Deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: DBConfig
+      server:
+        get_resource: WP_VM
+      input_values:
+        db_rootpassword: { get_attr: [ DBRootPassword, value ] }
+        db_name: { get_param: DBName }
+        db_user: { get_param: DBUserName}
+        db_password: { get_attr: [ DBUserPassword, value ] }
+        db_ipaddr: { get_attr: [ WP_VM, first_address ] }
+
+  WP_VM:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: Image }
+      flavor: { get_param: Flavor }
+      key_name: { get_param: KeyName }
+      name: { get_param: VMName }
+      security_groups: [ { get_resource: SecurityGroupWPFrontEnd } ]
+      networks:
+        - network: { get_param: Network }
+      user_data_format: SOFTWARE_CONFIG
+
+outputs:
+  WebSiteURL:
+    description: URL for Wordpress (CMS)
+    value:
+      str_replace:
+        template: http://host/wordpress
+        params:
+          host: { get_attr: [WP_VM, networks, private, 0] }

@@ -1,0 +1,73 @@
+heat_template_version: 2015-04-30
+
+description: >
+  Heat WordPress template to deploy WordPress on two instances
+
+parameters:
+  WordPressKeyName:
+    type: string
+
+  WordPressBackEndFlavorName:
+    type: string
+
+  WordPressImageID:
+    type: string
+
+  WordPressInstanceName: 
+    type: string
+
+  WordPressDataBaseName:
+    type: string
+
+  WordPressUserDataBaseName:
+    type: string
+
+  WordPressUserDataBasePassword:
+    type: string
+
+  WordPressRootDataBasePassword:
+    type: string
+
+  WordPressPublicNetworkName:
+    type: string
+
+  WordPressPrivateNetworkName:
+    type: string
+
+resources:
+  WordPressBackEndInstall:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config:
+        str_replace:
+          params:
+            $WordPressDataBaseName: { get_param: WordPressDataBaseName }
+            $WordPressUserDataBaseName: { get_param: WordPressUserDataBaseName }
+            $WordPressUserDataBasePassword: { get_param: WordPressUserDataBasePassword }
+            $WordPressRootDataBasePassword: { get_param: WordPressRootDataBasePassword }
+          template: { get_file: fragments/InstallBackEndWordPress.sh }
+
+  InstallWordPressBackEndInstance:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+        - config: { get_resource: WordPressBackEndInstall }
+
+  WordPressBackEndInstance:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: WordPressImageID }
+      flavor: { get_param: WordPressBackEndFlavorName }
+      key_name: { get_param: WordPressKeyName }
+      name: { list_join: ["-", [ { get_param: WordPressInstanceName }, "be"]] }
+      security_groups: [{ get_resource: SecurityGroupWordPressBackEnd }]
+      networks:
+        - network: { get_param: WordPressPrivateNetworkName }
+      user_data_format: RAW
+      user_data: { get_attr: [InstallWordPressBackEndInstance, config]}
+
+outputs:
+  WordPressPrivateDataBaseIPAddress:
+    description: The IP address of the MySQL instance.
+    value: { get_attr: [WordPressBackEndInstance, first_address] }

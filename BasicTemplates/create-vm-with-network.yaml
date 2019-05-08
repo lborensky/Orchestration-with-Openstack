@@ -1,0 +1,84 @@
+heat_template_version: 2013-05-23
+
+description: HOT template for create VM with this own network
+
+parameters:
+  ImageID:
+    type: string
+    description: Image Name
+    default: 0ea0bd13-5cae-49db-80f8-d59faa24e9ff # Ubuntu Server 14.04 LTS
+
+  Flavor:
+    type: string
+    description: Flavor of VM
+    default: t1.tiny.small-2
+
+  VMName:
+    type: string
+    description: Name of VM
+    default: vm-net-01
+
+  KeyName:
+    type: string
+    description: SSH Key
+    default: KP-OMC-01
+
+  TenantRouterID:
+    type: string
+    description: Public Network ID 
+    default: 80523c26-3933-40ba-ba18-833245fe504c
+
+  PublicNetworkName:
+    type: string
+    description: Name of Public Network
+    default: net-pub
+
+resources:
+  PrivateNet:
+    type: OS::Neutron::Net
+    properties:
+      name: LB_Net02
+
+  PrivateSubNet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: PrivateNet }
+      cidr: 10.0.9.0/24
+
+  RouterInterface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_param: TenantRouterID }
+      subnet_id: { get_resource: PrivateSubNet }
+
+  VMPort:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: PrivateNet }
+      fixed_ips:
+        - subnet_id: { get_resource: PrivateSubNet }
+
+  VMFloatingIP:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: PublicNetworkName }
+      port_id: { get_resource: VMPort }
+
+  VM:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: VMName }
+      image: { get_param: ImageID }
+      key_name: { get_param: KeyName }
+      flavor: { get_param: Flavor }
+      networks:
+        - port: { get_resource: VMPort }
+
+outputs:
+  VMPrivateIP:
+    description: Private IP address of VM
+    value: { get_attr: [ VM, first_address ] }
+
+  VMPublicIP:
+    description: Floating IP address of VM
+    value: { get_attr: [ VMFloatingIP, floating_ip_address ] }

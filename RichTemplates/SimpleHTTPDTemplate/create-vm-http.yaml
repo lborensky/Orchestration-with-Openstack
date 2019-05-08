@@ -1,0 +1,95 @@
+eat_template_version: 2015-04-30
+
+description: |
+  Deploy a simple VM with  HTTP Server
+
+parameters:
+  KeyName:
+    type: string
+    description: Clé SSH pour accès à la VM créée
+    default: KP-OCB-02
+
+  VMName:
+    type: string
+    description: Nom donné à la VM à créer
+    default: vm-app-01
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    default: lan
+
+  Image:
+    type: string
+    description: CentOS 7.3 Image ID
+    default: "94767087-2faa-4d1d-9359-9481b5e4d622"
+
+  MyIPAddress:
+    type: string
+    description: My Host with IP address
+    default: "90.35.168.225/32"
+
+resources:
+  IPf-Allocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: public
+
+  IPf-Association:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: IPf-Allocation }
+      server_id: { get_resource: VM }
+
+  SecurityGroupHTTPFrontEnd:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: APP-HTTP-FE
+      description: Ports (ingress) of access & web access, ports (egress) open by default
+      rules:
+        - remote_ip_prefix: { get_param: MyIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - remote_ip_prefix: { get_param: MyIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+
+  VM:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: Image }
+      flavor: s1.cw.small-1
+      key_name: { get_param: KeyName }
+      name: { get_param: VMName }
+      networks:
+        - network: { get_param: Network }
+      security_groups: [ { get_resource: SecurityGroupHTTPFrontEnd } ]
+      user_data_format: RAW
+      user_data: |
+        #cloud-config
+        packages:
+          - httpd
+        runcmd:
+          - [ systemctl, "enable", "httpd" ]
+          - [ systemctl, "start", "httpd" ]
+          - [ mkdir, "-p", "/var/www/html" ]
+        write_files:
+          - path: /var/www/html/index.html
+            owner: root:root
+            permissions: '0444'
+            content: |
+              <HTML>
+              <BODY>
+              <H1>Bonjour le monde!</H1>
+              </BODY>
+              </HTML>
+
+outputs:
+  Server_IP:
+    description: Server IP Address
+    value:
+      get_attr: [ VM, accessIPv4 ]

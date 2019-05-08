@@ -1,0 +1,109 @@
+heat_template_version: 2015-04-30
+
+description: >
+  Heat WordPress template to deploy WordPress on two instances (FrontEnd & BackEnd)
+
+parameters:
+  WordPressKeyName:
+    type: string
+    description: Name of a key pair to enable SSH access to instances.
+    default: default
+
+  WordPressFrontEndFlavorName:
+    type: string
+    description: Flavor to use for FrontEnd WordPress
+    default: s1.cw.small-1
+
+  WordPressBackEndFlavorName:
+    type: string
+    description: Flavor to use for BackEnd WordPress
+    default: s1.cw.small-1
+
+  WordPressInstanceName:
+    type: string
+    description: Generic Name of VM WordPress
+    default: APP-WP
+
+  WordPressImageID:
+    type: string
+    description: CentOS 7 Image with Netbackup Agent (only)
+    default: 94767087-2faa-4d1d-9359-9481b5e4d622
+
+  WordPressDataBaseName:
+    type: string
+    description: WordPress database name
+    default: wordpress
+    constraints:
+      - length: { min: 1, max: 64 }
+      - allowed_pattern: '[a-zA-Z][a-zA-Z0-9]*'
+
+  WordPressUserDataBaseName:
+    type: string
+    description: The WordPress database admin account username
+    default: admin
+    hidden: true
+    constraints:
+      - length: { min: 1, max: 16 }
+      - allowed_pattern: '[a-zA-Z][a-zA-Z0-9]*'
+
+  WordPressPublicNetworkName:
+    type: string
+    description: Public Network Name
+    default: public
+
+  WordPressPrivateNetworkName:
+    type: string
+    description: Private Network Name
+    default: lan
+
+  WordPressIPListAccessSSH:
+    type: comma_delimited_list
+    description: List of IP addresses (SSH)
+    default: "0.0.0.0/0"
+
+resources:
+  WordPressUserPasswordDataBase:
+    type: OS::Heat::RandomString
+
+  WordPressRootPasswordDataBase:
+    type: OS::Heat::RandomString
+
+  WordPressFrontEndInstanceOCB:
+    depends_on: [ WordPressBackEndInstanceOCB ]
+    type: wp-fe-tenant-ocb.yaml
+    properties:
+      WordPressKeyName: { get_param: WordPressKeyName }
+      WordPressFrontEndFlavorName: { get_param: WordPressFrontEndFlavorName }
+      WordPressInstanceName: { get_param: WordPressInstanceName }
+      WordPressImageID: { get_param: WordPressImageID }
+      WordPressDataBaseName: { get_param: WordPressDataBaseName }
+      WordPressUserDataBaseName: { get_param: WordPressUserDataBaseName }
+      WordPressUserDataBasePassword: { get_attr: [WordPressUserPasswordDataBase, value] }
+      WordPressDataBasePrivateIPAddress: { get_attr: [WordPressBackEndInstanceOCB, WordPressPrivateDataBaseIPAddress] }
+      WordPressPrivateNetworkName: { get_param: WordPressPrivateNetworkName }
+      WordPressPublicNetworkName: { get_param: WordPressPublicNetworkName }
+      WordPressIPListAccessSSH: { get_param: WordPressIPListAccessSSH }
+
+  WordPressBackEndInstanceOCB:
+    type: wp-be-tenant-ocb.yaml
+    properties:
+      WordPressKeyName: { get_param: WordPressKeyName }
+      WordPressBackEndFlavorName: { get_param: WordPressBackEndFlavorName }
+      WordPressInstanceName: { get_param: WordPressInstanceName }
+      WordPressImageID: { get_param: WordPressImageID }
+      WordPressDataBaseName: { get_param: WordPressDataBaseName }
+      WordPressUserDataBaseName: { get_param: WordPressUserDataBaseName }
+      WordPressUserDataBasePassword: { get_attr: [WordPressUserPasswordDataBase, value] }
+      WordPressRootDataBasePassword: { get_attr: [WordPressRootPasswordDataBase, value] }
+      WordPressPublicNetworkName: { get_param: WordPressPublicNetworkName }
+      WordPressPrivateNetworkName: { get_param: WordPressPrivateNetworkName }
+
+outputs:
+  WordPressDBUserPassword:
+    description: WordPress User DataBase password
+    value: { get_resource: WordPressUserPasswordDataBase }
+
+  WordPressDBRootPassword:
+    description: Root DataBase password
+    value: { get_resource: WordPressRootPasswordDataBase }
+

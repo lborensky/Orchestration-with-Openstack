@@ -1,0 +1,106 @@
+heat_template_version: 2015-04-30
+
+description: |
+  Deploy a simple VM with Public IP address
+
+parameters:
+  KeyName:
+    type: string
+    description: Clé SSH pour accès à la VM créée
+    default: KP-OCB-02
+
+  VMName:
+    type: string
+    description: Nom donné à la VM à créer
+    default: LB-VM-17
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    default: lan
+
+  Image:
+    type: string
+    description: CentOS 7.3 Image ID
+    default: "94767087-2faa-4d1d-9359-9481b5e4d622"
+
+  DataVolumeName:
+    type: string
+    description: Volume Name of Backup Data
+    default: VOL-DATA-10
+
+  DataVolumeSize:
+    type: string
+    description: Volume Size of Backup Data
+    default: 20
+
+  DataVolumeType:
+    type: string
+    description: I/O Type of Volume Data
+    default: standard
+
+  DataVolumeDevice:
+    type: string
+    description: Volume Device of Data
+    default: /dev/vdb
+
+  DataVolumeMount:
+    type: string
+    description: Mount point of device
+    default: /mnt
+
+resources:
+  IPf-Allocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: public
+
+  IPf-Association:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: IPf-Allocation }
+      server_id: { get_resource: VM }
+
+  DataVolume:
+    type: OS::Cinder::Volume
+    properties:
+      name: { get_param: DataVolumeName }
+      size: { get_param: DataVolumeSize }
+      volume_type: { get_param: DataVolumeType }
+
+  DataVolumeAttach:
+    depends_on: [ VM ]
+    type: OS::Cinder::VolumeAttachment
+    properties:
+      instance_uuid: { get_resource: VM }
+      volume_id: { get_resource: DataVolume }
+      mountpoint: { get_param: DataVolumeDevice }
+
+  BeginInstall:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config:
+        str_replace:
+          params:
+            $DataVolumeDevice: { get_param: DataVolumeDevice }
+            $DataVolumeMount: { get_param: DataVolumeMount }
+          template: { get_file: fragments/BeginInstall.sh }
+
+  VM:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: Image }
+      flavor: s1.cw.small-1
+      key_name: { get_param: KeyName }
+      name: { get_param: VMName }
+      networks:
+        - network: { get_param: Network }
+      user_data_format: RAW
+      user_data: { get_resource: BeginInstall }
+
+outputs:
+  Server_IP:
+    description: Server IP Address
+    value:
+      get_attr: [ VM, accessIPv4 ]

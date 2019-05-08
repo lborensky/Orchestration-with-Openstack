@@ -1,0 +1,66 @@
+heat_template_version: 2014-10-16
+
+description: |
+  A template that creates a server bootstrapped for use
+  with Heat Software Config
+
+parameters:
+  KeyName:
+    type: string
+    description: Clé SSH pour accès à la VM créée
+    default: KP-OCB-02
+
+  VMName:
+    type: string
+    description: Nom donné à la VM à créer
+    default: LB-VM-28
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    default: lan
+
+  Image:
+    type: string
+    description: ID of CentOS 7.2 image on Cloudwatt
+    default: "ad12daf1-044b-4b83-8902-2847b33feb34"
+
+resources:
+  IPf-Allocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: public
+
+  IPf-Association:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: IPf-Allocation }
+      server_id: { get_resource: server }
+
+  boot_config:
+    type: Heat::InstallConfigAgent
+
+  admin_password:
+    type: OS::Heat::RandomString
+
+  server:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: VMName }
+      admin_pass: { get_attr: [ admin_password, value ] }
+      image: { get_param: Image }
+      key_name: { get_param: KeyName }
+      flavor: s1.cw.small-1
+      networks:
+        - network: { get_param: Network }
+      user_data_format: RAW
+      user_data: {get_attr: [boot_config, config]}
+
+outputs:
+  server_ip:
+    value: { get_attr: [ server, addresses, public, 0, addr ] }
+    description: IP address of the server
+
+  admin_password:
+    value: { get_attr: [ admin_password, value ] }
+    description: Root password to the server

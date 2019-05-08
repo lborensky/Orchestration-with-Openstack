@@ -1,0 +1,331 @@
+heat_template_version: 2013-05-23
+
+description: >
+  HOT template to create several networks and servers to to provide a continuous integration environment 
+  (Continue Integration Platform) required for your development projects
+
+parameters:
+###############
+# VM Parameters
+###############
+  Key_Name:
+    type: string
+    description: Name of keypair to assign to VM
+
+  Flavor_Controller:
+    type: string
+    description: Flavor to use for Controller
+    default: "t1.tiny.small-2"
+
+  Image_Controller:
+    type: string
+    description: Name of image to use Controller
+    # Ubuntu 14.04 Trusty Cloud / KVM
+    default: "0ea0bd13-5cae-49db-80f8-d59faa24e9ff"
+
+#####################
+# Networks Parameters
+#####################
+  Private_Network_Controller_Name:
+    type: string
+    description: Name of private network controller to be created
+    default: "CIP_Network_Controller"
+
+  Private_SubNetwork_Controller_Name:
+    type: string
+    description: Name of private subnetwork controller to be created
+    default: "CIP_SubNetwork_Controller_Name"
+
+  Private_SubNetwork_Controller_CIDR:
+    type: string
+    description: Private network controller address (CIDR notation)
+
+  Private_Network_CI_Name:
+    type: string
+    description: Name of private network of CI to be created
+    default: "CIP_Network_CI"
+
+  Private_SubNetwork_CI_Name:
+    type: string
+    description: Name of private subnetwork of CI to be created
+    default: "CIP_SubNetwork_CI"
+
+  Private_SubNetwork_CI_CIDR:
+    type: string
+    description: Private network CI address (CIDR notation)
+
+  WorkStation_IP_Address:
+    type: string
+    description: IP Address of Developer WorkStation
+    default: "192.168.1.2"
+
+  Public_Network_Name:
+    type: string
+    description: Public Network (Internet Access)
+    default: "net-pub"
+
+  Gateway_Tenant_ID:
+    type: string
+    description: "Tenant Router ID"
+    default: "80523c26-3933-40ba-ba18-833245fe504c"
+
+#####################
+# Firewall Parameters
+#####################
+  FireWall_Policy_Run_Name:
+    type: string
+    description: "Name of Policy (Run) for a Tenant" 
+    default: "tenant_policy_mktgcic:demo"
+
+#################
+# Project Context
+#################
+  CIP_Tenant_Cloud: 
+    type: string
+    description: "Rhone Tenant Name"
+
+  CIP_Tenant_Domain_Cloud:
+    type: string
+    description: "Tenant Domain Name"
+
+  CIP_SubNet_Cloud:
+    type: string
+    description: "CI Network Name"
+
+  CIP_Login_Cloud:
+    type: string
+    description: "API Account Login"
+
+  CIP_Password_Cloud:
+    type: string
+    description: "API Secret Login"
+
+resources:
+###########################################
+# Private Networks Creation & Configuration
+###########################################
+  Private_Network_Controller:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: Private_Network_Controller_Name }
+
+  Private_SubNetwork_Controller:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: Private_Network_Controller }
+      cidr: { get_param: Private_SubNetwork_Controller_CIDR }
+      name: { get_param: Private_SubNetwork_Controller_Name }
+
+  Private_Network_Controller_Router_Interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_param: Gateway_Tenant_ID }
+      subnet_id: { get_resource: Private_SubNetwork_Controller }
+
+  Private_Network_CI:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: Private_Network_CI_Name }
+
+  Private_SubNetwork_CI:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: Private_Network_CI }
+      cidr: { get_param: Private_SubNetwork_CI_CIDR }
+      name: { get_param: Private_SubNetwork_CI_Name }
+
+  Private_Network_CI_Router_Interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_param: Gateway_Tenant_ID }
+      subnet_id: { get_resource: Private_SubNetwork_CI }
+  
+##############################################
+# FireWall Rules to Private_Network_Controller
+##############################################
+  Rule_01_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK outflow (Private_Network_Controller) to any port 80 with all IP address"
+      destination_ip_address: "0.0.0.0/32"
+      destination_port: "80"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (CIP: Controller) [out: 80, to all IP address]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_attr: [Private_SubNetwork_Controller, cidr] }
+      source_port: "1:65535"
+
+  Rule_02_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK outflow (Private_Network_Controller) to any port 443 with all IP address"
+      destination_ip_address: "0.0.0.0/32"
+      destination_port: "443"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (CIP: Controller) [out: 443, to all IP address]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_attr: [Private_SubNetwork_Controller, cidr] }
+      source_port: "1:65535"
+
+  Rule_03_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK inflow (Private_Network_Controller) from any to port 22 of WorkStation IP address "
+      # destination_ip_address: { get_resource: Private_SubNetwork_Controller }
+      destination_ip_address: { get_attr: [Private_SubNetwork_Controller, cidr] }
+      destination_port: "22"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (CIP: Controller) [in: 22, from WorkStation IP Address]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_param: WorkStation_IP_Address }
+      source_port: "1:65535"
+
+######################################
+# FireWall Rules to Private_Network_CI
+######################################
+  Rule_04_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK outflow (Private_Network_CI) to any port 80 with all IP address"
+      destination_ip_address: "0.0.0.0/32"
+      destination_port: "80"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (CIP: CI) [out: 80, to all IP address]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_attr: [Private_SubNetwork_CI, cidr] }
+      source_port: "1:65535"
+
+  Rule_05_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK outflow (Private_Network_CI) to any port 443 with all IP address"
+      destination_ip_address: "0.0.0.0/32"
+      destination_port: "443"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (CIP: CI) [out: 443, to all IP address]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_attr: [Private_SubNetwork_CI, cidr] }
+      source_port: "1:65535"
+
+#########################################################
+# FireWall Rules between Private Networks and WorkStation
+#########################################################
+  Rule_06_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK flows between networks (Controller & CI) on port 22"
+      # destination_ip_address: { get_resource: Private_SubNetwork_CI }
+      destination_ip_address: { get_attr: [Private_SubNetwork_CI, cidr] }
+      destination_port: "22"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (between Networks CIP) [out: 22, to all IP address]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_attr: [Private_SubNetwork_Controller, cidr] }
+      source_port: "1:65535"
+
+  Rule_07_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK inflow (WorkStation) to port 80 on Private_Network_CI"
+      # destination_ip_address: { get_resource: Private_SubNetwork_CI }
+      destination_ip_address: { get_attr: [Private_SubNetwork_CI, cidr] }
+      destination_port: "80"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (CIP: WorkStation) [in: 80, for all IP address / Private_Network_CI]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_param: WorkStation_IP_Address }
+      source_port: "1:65535"
+
+  Rule_08_Network_FW:
+    type: OS::Neutron::FirewallRule
+    properties:
+      action: "allow"
+      description: "OK inflow (WorkStation) to port 443 on Private_Network_CI"
+      # destination_ip_address: { get_resource: Private_SubNetwork_CI }
+      destination_ip_address: { get_attr: [Private_SubNetwork_CI, cidr] }
+      destination_port: "443"
+      enabled: True
+      ip_version: "4"
+      name: "FW Rule (CIP: WorkStation) [in: 443, for all IP address / Private_Network_CI]"
+      protocol: "tcp"
+      shared: False
+      source_ip_address: { get_param: WorkStation_IP_Address }
+      source_port: "1:65535"
+
+########################################
+# Insertion Rules in Policies (RUN only)
+########################################
+  Rules_Insertion_Policy_RUN:
+    type: OS::Neutron::FirewallPolicy
+    properties:
+      audited: False
+      description: "Insertion of 8 Networks Rules of Firewall Policy RUN (CIP Environment)"
+      firewall_rules: [{ get_resource: Rule_01_Network_FW }, { get_resource: Rule_02_Network_FW }, { get_resource: Rule_03_Network_FW }, { get_resource: Rule_04_Network_FW }, { get_resource: Rule_05_Network_FW }, { get_resource: Rule_06_Network_FW }, { get_resource: Rule_07_Network_FW }, { get_resource: Rule_08_Network_FW }]
+      name: { get_param: FireWall_Policy_Run_Name }
+      shared: False
+  
+##################################
+# VM Configuration & Instanciation
+##################################
+  VM_Controller:
+    type: OS::Nova::Server
+    properties:
+      name: "CIP_Controller"
+      image: { get_param: Image_Controller }
+      flavor: { get_param: Flavor_Controller }
+      key_name: { get_param: Key_Name }
+      networks:
+        - port: { get_resource: VM_Controller_Port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: { get_file: install_and_config_SW.sh }
+          params:
+            $CIP_Tenant_Cloud: { get_param: CIP_Tenant_Cloud }
+            $CIP_Tenant_Domain_Cloud: { get_param: CIP_Tenant_Domain_Cloud }
+            $CIP_SubNet_Cloud: { get_param: CIP_SubNet_Cloud }
+            $CIP_Login_Cloud: { get_param: CIP_Login_Cloud }
+            $CIP_Password_Cloud: { get_param: CIP_Password_Cloud }
+
+  VM_Controller_Port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: Private_Network_Controller }
+      fixed_ips:
+        - subnet_id: { get_resource: Private_SubNetwork_Controller }
+
+  VM_Controller_Floating_IP:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: Public_Network_Name }
+      port_id: { get_resource: VM_Controller_Port }
+
+outputs:
+  VM_Controller_Private_IP:
+    description: IP address of controller (VM) in private network
+    value: { get_attr: [ VM_Controller, first_address ] }
+
+  VM_Controller_Public_IP:
+    description: Floating IP address of controller (VM) in public network
+    value: { get_attr: [ VM_Controller_Floating_IP, floating_ip_address ] }

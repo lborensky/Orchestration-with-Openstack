@@ -1,0 +1,137 @@
+heat_template_version: 2014-10-16
+
+description: |
+  A template to create a K8S master with N nodes (manual scaling, not autoscaling)
+
+parameters:
+  KeyName:
+    type: string
+    description: Key for SSH access
+    default: KP-OCB-02
+
+  MasterName:
+    type: string
+    description: Name of master VM
+    default: K8S-Master
+
+  FlavorMaster: 
+    type: string
+    description: Flavor of Master VM
+    default: n1.cw.highcpu-2
+
+  FlavorNode: 
+    type: string
+    description: Flavor of Nodes VM
+    default: s1.cw.small-1
+
+  NetworkName:
+    type: string
+    description: Network to attach instance 
+    default: lan
+
+  SubNetworkName:
+    type: string
+    description: SubNetwork to attach instance
+    default: local
+
+  APIExtDNSName:
+    type: string
+    description: Access the API K8S through a different IP address, or through a hostname
+
+  ImageID:
+    type: string
+    description: ID of CentOS 7.2 image (no std, with update) on Cloudwatt
+    default: "db2ca7a9-b1ff-4901-b35c-d34c7a0532b9"
+
+  MiniNumberOfNodes:
+    type: number
+    description: Minimum of Nodes
+    constraints:
+      - range: { min: 1, max: 1 }
+    default: 1
+
+  NumberOfNodes:
+    type: number
+    description: Node(s) desired
+    constraints:
+      - range: { min: 1, max: 4 }
+    default: 2
+
+  MaxiNumberOfNodes:
+    type: number
+    description: Maximum of Nodes
+    constraints:
+      - range: { min: 1, max: 4 }
+    default: 4
+
+resources:
+  IPfMasterAlloc:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: public
+
+  IPfMasterAssoc:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: IPfMasterAlloc }
+      server_id: { get_resource: MasterVM }
+
+  InstallMaster:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config:
+        str_replace:
+          params:
+            $num_nodes: { get_param: NumberOfNodes }
+            $wc_notify: { get_attr: ['MasterWaitHandle', 'curl_cli'] }
+          template: { get_file: fragments/InstallK8SMaster.sh } 
+  
+  MasterWaitCondition:
+    type: OS::Heat::WaitCondition
+    depends_on: MasterVM
+    properties:
+      handle: { get_resource: MasterWaitHandle }
+      count: 1
+      timeout: 600
+
+  MasterWaitHandle:
+    type: OS::Heat::WaitConditionHandle
+  
+  MasterVM:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: MasterName }
+      image: { get_param: ImageID }
+      key_name: { get_param: KeyName }
+      flavor: { get_param: FlavorMaster }
+      networks:
+        - network: { get_param: NetworkName }
+      user_data_format: RAW
+      user_data: { get_attr: [InstallMaster, config]}
+
+  NodesVM:
+    type: OS::Heat::AutoScalingGroup
+    depends_on: [ MasterWaitCondition ]
+    properties:
+      resource:
+        type: create-k8s-nodes.yaml
+        properties:
+          KeyName: { get_param: KeyName }
+          ImageID: { get_param: ImageID }
+          NetworkName: { get_param: NetworkName }
+          SubNetworkName: { get_param: SubNetworkName }
+          FlavorNode: { get_param: FlavorNode }
+          TokenAndIPMaster: { 'Fn::Select': ['id1', { get_attr: [MasterWaitCondition, data] }] }
+      min_size: { get_param: MiniNumberOfNodes }
+      desired_capacity: { get_param: NumberOfNodes }
+      max_size: {get_param:  MaxiNumberOfNodes }
+
+outputs:
+  MasterIP:
+    value: { get_attr: [ MasterVM, addresses, public, 0, addr ] }
+    description: IP address of the server
+
+  TokenAndIP:
+    description: "Token & IP Master"
+    value: { 'Fn::Select': ['id1', { get_attr: [MasterWaitCondition, data] }] }

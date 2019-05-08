@@ -1,0 +1,97 @@
+heat_template_version: 2014-10-16
+
+description: |
+  A simple template to create a K8S node(s) 
+
+parameters:
+  # Parameters from the parent template
+  KeyName:
+    type: string
+    description: Key for SSH access
+    default: KP-OCB-02
+
+  ImageID:
+    type: string
+    description: ID of CentOS 7.2 image (no std, with update) on Cloudwatt
+    default: "db2ca7a9-b1ff-4901-b35c-d34c7a0532b9"
+
+  FlavorNode:
+    type: string
+    description: Flavor of Nodes VM
+    default: s1.cw.small-1
+
+  NetworkName:
+    type: string
+    description: Network to attach instance to
+    default: lan
+
+  SubNetworkName:
+    type: string
+    description: SubNetwork to attach instance to
+    default: local
+
+  # Parameters from the local template
+  ClusterName:
+    type: string
+    description : Name of Cluster
+    default: K8S
+
+  PostFixNodeName:
+    type: string
+    default: [{"class": "digits", "min": 1}]
+
+  ExternalNetworkName:
+    type: string
+    description: SubNetwork to attach instance to
+    default: public
+
+  TokenAndIPMaster:
+     type: string
+     description: Token of association and IP of Master
+
+resources:
+  NodeNamePostFix:
+    type: OS::Heat::RandomString
+    properties:
+      length: 4
+      character_classes: { get_param: PostFixNodeName }
+
+  NodeEth0:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: NetworkName }
+      fixed_ips:
+        - subnet: { get_param: SubNetworkName }
+      allowed_address_pairs:
+        - ip_address: 10.247.0.0/16
+      replacement_policy: AUTO
+
+  NodeFloating:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: ExternalNetworkName }
+      port_id: { get_resource: NodeEth0 }
+
+  InstallNodes:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config:
+        str_replace:
+          params:
+            $TOKEN_AND_IP_MASTER: { get_param: TokenAndIPMaster }
+          template: { get_file: fragments/InstallK8SNode.sh } 
+
+  Nodes:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: ImageID}
+      flavor: { get_param: FlavorNode }
+      key_name: { get_param: KeyName }
+      user_data_format: RAW
+      user_data: { get_attr: [InstallNodes, config]}
+      networks:
+        - port: { get_resource: NodeEth0 }
+      name:
+        list_join: [ "-", [ { get_param: ClusterName }, "Node", { get_resource: NodeNamePostFix } ] ]
+

@@ -1,0 +1,96 @@
+heat_template_version: 2013-05-23
+
+description: Example auto scale group, policy and alarm
+
+parameters:
+  Image:
+    type: string
+    description: image (Fedora) used to create instance
+    default: 17df2d40-ec79-42c3-b30c-d847ebffc443
+
+  Flavor:
+    type: string
+    description: instance flavor to be used
+    default: m1.small
+
+  KeyName:
+    type: string
+    description: keypair to be used
+    default: KP-OCA-01
+
+resources:
+  ScaleUpGroup:
+    type: OS::Heat::AutoScalingGroup
+    properties:
+      cooldown: 300
+      desired_capacity: 1
+      max_size: 3
+      min_size: 1
+      resource:
+        type: OS::Nova::Server::Fedora
+        properties:
+          metadata: { "metering.server_group": { get_param: "OS::stack_id" } }
+          image: { get_param: Image }
+          flavor: { get_param: Flavor }
+          key_name: { get_param: KeyName }
+
+  ScaleUpPolicy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: { get_resource: ScaleUpGroup }
+      cooldown: 300
+      scaling_adjustment: 1
+
+  ScaleDownPolicy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: { get_resource: ScaleUpGroup }
+      cooldown: 300
+      scaling_adjustment: -1
+
+  CPUAlarmHigh:
+    type: OS::Aodh::GnocchiAggregationByResourcesAlarm
+    properties:
+      description: Scale up if CPU > 80%
+      metric: cpu_util
+      aggregation_method: mean
+      granularity: 300
+      evaluation_periods: 1
+      threshold: 80
+      resource_type: instance
+      comparison_operator: gt
+      alarm_actions:
+        - { get_attr: [ScaleUpPolicy, alarm_url] }
+      query:
+        str_replace:
+          template: '{"=": {"server_group": "stack_id"}}'
+          params:
+            stack_id: { get_param: "OS::stack_id" }
+
+  CPUAlarmLow:
+    type: OS::Aodh::GnocchiAggregationByResourcesAlarm
+    properties:
+      description: Scale down if CPU < 5%
+      metric: cpu_util
+      aggregation_method: mean
+      granularity: 300
+      evaluation_periods: 1
+      threshold: 5
+      resource_type: instance
+      comparison_operator: lt
+      alarm_actions:
+        - { get_attr: [ScaleDownPolicy, alarm_url] }
+      query:
+        str_replace:
+          template: '{"=": {"server_group": "stack_id"}}'
+          params:
+            stack_id: { get_param: "OS::stack_id" }
+
+outputs:
+  ScaleUpPolicySignalURL:
+    value: { get_attr: [ScaleUpPolicy, signal_url] }
+
+  ScaleDownPolicySignalURL:
+    value: { get_attr: [ScaleDownPolicy, signal_url] }

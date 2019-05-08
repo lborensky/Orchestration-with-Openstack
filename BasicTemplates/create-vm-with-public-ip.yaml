@@ -1,0 +1,62 @@
+# Fiche: F03
+heat_template_version: 2015-04-30
+
+description: 'Creation serveur virtuel: VM'
+
+parameters:
+  KeyName:
+    type: string
+    description: Clé SSH pour accès à la VM créée
+    label: KeyName = keypair SSH
+    default: KP-OMC-01
+
+  VMName:
+    type: string
+    description: Nom donné à la VM à créer
+    label: VMName = nom de la VM
+    default: LB-VM99
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    label: Network = nom du réseau
+    default: LB_Net01-run
+
+  Image:
+    type: string
+    description: Ubuntu 16-04 LTS Image
+    label: Image = id de l'image OS
+    default: 66137275-909d-466b-a2f5-abdda6865011
+    
+  Flavor:
+    type: string
+    description: VM Type (vCore, RAM & Disk)
+    label: Flavor = name du flavor
+    default: t1.standard.medium-1
+
+resources:
+  IPf-Allocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: net-pub
+
+  IPf-Association:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: IPf-Allocation }
+      server_id: { get_resource: VM }
+
+  VM:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: Image }
+      flavor: { get_param: Flavor }
+      key_name: { get_param: KeyName }
+      name: { get_param: VMName }
+      networks:
+        - network: { get_param: Network }
+
+outputs:
+  InstanceIPf: 
+    description: IP floating
+    value: { get_attr: [VM, first_address] }

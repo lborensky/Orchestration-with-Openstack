@@ -1,0 +1,45 @@
+heat_template_version: 2014-10-16
+
+description: >
+  Création d'une simple VM avec création d'une paire de clés privées SSH pour l'accès à la VM depuis le compte d'administration
+
+parameters:
+  Flavor:
+    type: string
+    description: ID du gabarit d'instance de VM
+    default: t1.tiny.small-2
+    constraints:
+      - allowed_values: [t1.tiny.small-2, t1.standard.medium-1, t1.tiny.small-3]
+        description:
+          Le flavor doit donné doit appartenir à ce sous-ensemble de valeurs permises
+
+  ImageID:
+    type: string
+    description: ID de l'image OS pour la VM à créer (Ubuntu Server 14-04 LTS)
+    default: 0ea0bd13-5cae-49db-80f8-d59faa24e9ff
+
+resources:
+  PrivateKey:
+    type: OS::Nova::KeyPair
+    properties:
+      name: KP-OMC-10
+      save_private_key: True
+
+  VM_Port:
+    type: OS::Neutron::Port
+    properties:
+      network: LB_Net01-run
+
+  VM:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_resource: PrivateKey }
+      image: { get_param: ImageID }
+      flavor: { get_param: Flavor }
+      networks:
+        - port: { get_resource: VM_Port }
+
+outputs:
+  PrivateKey:
+    description: Clé privée pour accéder à la VM
+    value: { get_attr: [ PrivateKey, private_key ] }

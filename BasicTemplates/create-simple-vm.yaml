@@ -1,0 +1,41 @@
+# Fiche: F01
+heat_template_version: 2015-04-30
+
+description: 'Creation simple serveur virtuel: VM'
+
+parameters:
+  KeyName:
+    type: string
+    description: Clé SSH pour accès à la VM créée
+    label: KeyName = keypair SSH
+    default: KP-OMC-01
+
+  VMName:
+    type: string
+    description: Nom donné à la VM à créer
+    label: VMName = nom de la VM
+    default: LB-VM00
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    label: Network = nom du réseau
+    default: LB_Net01-run
+
+  Image:
+    type: string
+    description: Ubuntu 16-04 LTS Image
+    label: Image = id de l'image OS
+    default: 66137275-909d-466b-a2f5-abdda6865011
+    
+
+resources:
+  VM:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: Image}
+      flavor: t1.standard.medium-1
+      key_name: {get_param: KeyName}
+      name: {get_param: VMName}
+      networks:
+        - network: {get_param: Network}

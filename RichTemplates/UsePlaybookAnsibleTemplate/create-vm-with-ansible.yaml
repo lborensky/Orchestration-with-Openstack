@@ -1,0 +1,108 @@
+heat_template_version: 2014-10-16
+description: |
+  A template that creates a server bootstrapped for use
+  with Heat Software Config
+
+parameters:
+  KeyName:
+    type: string
+    description: Key SSH to VM access
+    default: KP-OCB-02
+
+  VMName:
+    type: string
+    description: Name of VM
+    default: vm-scm-01
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    default: lan
+
+  Image:
+    type: string
+    description: Ubuntu 16-04 LTS Image with agent and tools: os-collect-config, ...
+    default: "53e0a386-0304-487e-a69a-8cc92c021137"
+
+  Flavor:
+    type: string
+    default: s1.cw.small-1
+
+resources:
+  IPf-Allocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: public
+
+  IPf-Association:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: IPf-Allocation }
+      server_id: { get_resource: server }
+
+  Config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ansible
+      inputs:
+      - name: foo
+      - name: bar
+      outputs:
+      - name: result
+      config:
+        get_file: fragments/example-ansible-template.ansible
+
+  Deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: Config
+      server:
+        get_resource: server
+      input_values:
+        foo: fooooo
+        bar: baaaaa
+
+  Other_Deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: Config
+      server:
+        get_resource: Server
+      input_values:
+        foo: fu
+        bar: barmy
+      actions:
+      - CREATE
+      - UPDATE
+      - SUSPEND
+      - RESUME
+
+  Server:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: Image }
+      name: { get_param: VMName }
+      flavor: { get_param: Flavor }
+      key_name: { get_param: KeyName }
+      networks:
+        - network: { get_param: Network }
+      user_data_format: SOFTWARE_CONFIG
+
+outputs:
+  result:
+    value:
+      get_attr: [Deployment, result]
+  stdout:
+    value:
+      get_attr: [Deployment, deploy_stdout]
+  stderr:
+    value:
+      get_attr: [Deployment, deploy_stderr]
+  status_code:
+    value:
+      get_attr: [Deployment, deploy_status_code]
+  other_result:
+    value:
+      get_attr: [Other_Deployment, result]

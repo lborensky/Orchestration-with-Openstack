@@ -1,0 +1,146 @@
+heat_template_version: 2015-04-30
+
+description: |
+  Simple VM avec Apache2 pour affichage Web UI de la chaîne Hello World
+
+parameters:
+  HelloWorldInstanceName:
+    type: string
+    description: Name of VM
+    default: APP-HW-FE
+
+  HelloWorldKeyName:
+    type: string
+    description: Name of a key pair to enable SSH access to instances.
+    default: KP-OCB-02
+
+  HelloWorldFlavorName:
+    type: string
+    description: Flavor to use for the Hello World VM
+    default: 
+
+  HelloWorldImageID:
+    type: string
+    description: CentOS 7 Image with Netbackup Agent (only) 
+    default: 94767087-2faa-4d1d-9359-9481b5e4d622
+
+  HelloWorldPrivatNetworkName:
+    type: string
+    description: Name of Private Network
+    default: lan
+
+  HelloWorldPublicNetworkName:
+    type: string
+    description: Name of Public Network
+    default: public
+
+  HelloWorldPrivateNetworkName:
+    type: string
+    description: Name of Private Network
+    default: lan
+
+  HelloWordIPListAccessSSH:
+    type: comma_delimited_list
+    description: List of IP addresses (SSH)
+    default: "0.0.0.0/0"
+
+  HelloWordPortSSH:
+    type: comma_delimited_list
+    description: Only SSH port
+    default: "22"
+
+  InternetAllIPAddress:
+    type: string
+    description: Web Access to Hello World Application
+    default: 0.0.0.0/0
+
+resources:
+  SecurityGroupHelloWordAccessSSH:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: HYB-SSH-HW-FE
+      description: Ports (ingress) of Access SSH 
+      rules:
+        repeat:
+          for_each:
+            <%ip_addr%>: { get_param: HelloWordIPListAccessSSH }
+            <%port%>: { get_param: HelloWordPortSSH }
+          template:
+            remote_ip_prefix: <%ip_addr%>
+            protocol: tcp
+            direction: ingress
+            port_range_min: <%port%>
+            port_range_max: <%port%>
+
+  SecurityGroupHelloWorldFrontEnd:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: HYB-APP-HW-FE
+      description: Ports (ingress) of Tools Services by Application VM, ports (egress) open by default
+      rules:
+        - remote_ip_prefix: { get_param: InternetAllIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+        - remote_ip_prefix: { get_param: InternetAllIPAddress }
+          direction: ingress
+          protocol: tcp
+          port_range_min: 443
+          port_range_max: 443
+
+  HelloWorldPublicIPAllocation:
+    type: OS::Nova::FloatingIP
+    properties:
+      pool: { get_param: HelloWorldPublicNetworkName } 
+
+  HelloWorldPublicIPAssociation:
+    type: OS::Nova::FloatingIPAssociation
+    properties:
+      floating_ip: { get_resource: HelloWorldPublicIPAllocation  }
+      server_id: { get_resource: HelloWorldInstance }
+
+  HelloWorldPortInstance:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: HelloWorldPrivateNetworkName }
+
+  HelloWorldApacheInstall:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        yum install -y httpd
+        systemctl start httpd.service
+        systemctl enable httpd.service
+        systemctl stop firewalld
+        echo "<html><body>Hello World</body></html>" > /var/www/html/index.html
+
+  HelloWorldInstanceInstall:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+        - config: { get_resource: HelloWorldApacheInstall }
+      
+  HelloWorldInstance:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: HelloWorldImageID }
+      flavor: { get_param: HelloWorldFlavorName }
+      key_name: { get_param: HelloWorldKeyName }
+      name: { get_param: HelloWorldInstanceName }
+      security_groups: [{ get_resource: SecurityGroupHelloWorldFrontEnd }, { get_resource: SecurityGroupHelloWordAccessSSH }]
+      networks:
+        - network: { get_param: HelloWorldPrivatNetworkName }
+      user_data_format: RAW
+      user_data: { get_attr: [HelloWorldInstanceInstall, config]}
+
+outputs:
+  HelloWorldWebsiteURL:
+    description: URL for Apache2 (FrontEnd)
+    value:
+      str_replace:
+        template: http://host/
+        params:
+          host: { get_attr: [HelloWorldInstance, networks, private, 0] }

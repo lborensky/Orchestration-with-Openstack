@@ -1,0 +1,64 @@
+heat_template_version: 2015-04-30
+
+description: |
+  Prepare Image CentOS 7.2 up-to-date
+
+parameters:
+  KeyName:
+    type: string
+    description: Clé SSH pour accès à la VM créée
+    default: KP-OMC-01
+
+  VMName:
+    type: string
+    description: Nom donné à la VM à créer
+    default: LB-VM17
+
+  Network:
+    type: string
+    description: Network to attach instance to
+    default: LB_Net01-run
+
+  Flavor:
+    type: string
+    description: Gabarit de VM
+    default: t2.standard.large-2
+
+  Image:
+    type: string
+    description: Redhat 7.3
+    default: 62b46207-0d2c-40ef-88b3-6f95898a6b0b
+
+resources:
+#  IPf-Allocation:
+#    type: OS::Nova::FloatingIP
+#    properties:
+#      pool: net-pub 
+
+  IPf-Association:
+    type: OS::Neutron::FloatingIPAssociation
+    properties:
+      floatingip_id: "89855792-67fd-44d9-b12e-892f2d3010f5"
+      port_id: { get_resource: VM_Port }
+
+  VM_Port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: "a9c40e40-fe0b-47b3-adb9-e6843e38b148"
+      fixed_ips: [{"subnet": "LB_SubNet01-run", "ip_address": 10.0.7.177}]
+
+  VM:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: Image }
+      flavor: { get_param: Flavor }
+      key_name: { get_param: KeyName }
+      name: { get_param: VMName }
+      networks:
+        - port: { get_resource: VM_Port }
+      user_data_format: RAW
+      user_data: |
+        #!/bin/bash
+        yum install -y httpd
+        echo "<html><body>Hello World</body></html>" > /var/www/index.html
+        echo "LC_ALL=en_US.UTF-8" >> /etc/environment 

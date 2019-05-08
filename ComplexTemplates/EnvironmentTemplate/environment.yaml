@@ -1,0 +1,6 @@
+# Installs software-config agent on boot for centos with yum
+parameters:
+  Image: "ad12daf1-044b-4b83-8902-2847b33feb34"
+
+resource_registry:
+  "Heat::InstallConfigAgent": install_config_agent_centos7_rdo.yaml
